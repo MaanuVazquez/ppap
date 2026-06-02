@@ -44,6 +44,7 @@ var (
 	procCreateSyntheticPointerDevice  = user32.NewProc("CreateSyntheticPointerDevice")
 	procInjectSyntheticPointerInput   = user32.NewProc("InjectSyntheticPointerInput")
 	procDestroySyntheticPointerDevice = user32.NewProc("DestroySyntheticPointerDevice")
+	procWindowFromPoint               = user32.NewProc("WindowFromPoint")
 )
 
 type point struct {
@@ -173,6 +174,7 @@ func (injector *windowsInkInjector) Inject(event input.PenEvent) error {
 	}
 
 	location := point{X: x, Y: y}
+	targetWindow := windowFromPoint(location)
 	penMask := uint32(penMaskPressure)
 	rotation := uint32(clampInt(math.Round(event.Twist), 0, 359))
 	tiltX := int32(clampInt(math.Round(event.TiltX), -90, 90))
@@ -194,6 +196,7 @@ func (injector *windowsInkInjector) Inject(event input.PenEvent) error {
 				PointerType:        pointerInputTypePen,
 				PointerID:          1,
 				PointerFlags:       flags,
+				HwndTarget:         targetWindow,
 				PtPixelLocation:    location,
 				PtPixelLocationRaw: location,
 				HistoryCount:       1,
@@ -226,6 +229,15 @@ func (injector *windowsInkInjector) Close() error {
 	}
 
 	return nil
+}
+
+func windowFromPoint(location point) uintptr {
+	window, _, _ := procWindowFromPoint.Call(pointToUintptr(location))
+	return window
+}
+
+func pointToUintptr(location point) uintptr {
+	return uintptr(uint64(uint32(location.X)) | uint64(uint32(location.Y))<<32)
 }
 
 func ensureContactPressure(pressure uint32) uint32 {

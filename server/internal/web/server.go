@@ -17,8 +17,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"ppap/server/internal/display"
 	"ppap/server/internal/input"
 	"ppap/server/internal/pen"
+	"ppap/server/internal/platform"
 	"ppap/server/internal/screen"
 )
 
@@ -60,6 +62,7 @@ func NewServer(config ServerConfig) *Server {
 
 func (server *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("/api/health", server.handleHealth)
 	mux.HandleFunc("/api/pen", server.handlePenSocket)
 	mux.HandleFunc("/api/pen/backend", server.handlePenBackend)
@@ -68,6 +71,21 @@ func (server *Server) Routes() http.Handler {
 	mux.Handle("/", server.staticHandler())
 
 	return mux
+}
+
+func (server *Server) handleDiagnostics(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"activePenBackend": server.activePenBackend(),
+		"backends":         server.penBackends(),
+		"foregroundWindow": platform.ActiveWindowInfo(),
+		"virtualBounds":    display.VirtualBounds(),
+	})
 }
 
 func (server *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
@@ -109,8 +127,16 @@ func (server *Server) handlePenBackend(writer http.ResponseWriter, request *http
 func (server *Server) writePenBackendState(writer http.ResponseWriter) {
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"active":   server.injector.ActiveBackend(),
-		"backends": server.injector.Backends(),
+		"backends": server.penBackends(),
 	})
+}
+
+func (server *Server) penBackends() []pen.BackendInfo {
+	if server.injector == nil {
+		return []pen.BackendInfo{}
+	}
+
+	return server.injector.Backends()
 }
 
 func (server *Server) activePenBackend() string {

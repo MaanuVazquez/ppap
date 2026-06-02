@@ -87,6 +87,7 @@ For Krita and Photoshop testing:
 - If the target app runs elevated, run the server elevated too.
 - Use the `Pressure Test` button in the iPad client to inject a server-generated pressure ramp into the focused drawing app.
 - The backend switch currently exposes Windows Ink and a WinTab scaffold. WinTab is reported as unavailable until PPAP has a virtual tablet driver or Wintab32 proxy, because WinTab does not provide a global user-mode injection API.
+- Open `/api/diagnostics` on the server to confirm the active backend, foreground Windows window, and virtual desktop bounds while testing.
 
 ## Current Limitations
 

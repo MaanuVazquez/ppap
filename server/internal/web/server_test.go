@@ -132,6 +132,21 @@ func TestPenBackendSwitchRejectsUnavailableBackend(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsEndpointReturnsState(t *testing.T) {
+	server := NewServer(ServerConfig{Injector: &recordingInjector{}})
+	request := httptest.NewRequest(http.MethodGet, "/api/diagnostics", nil)
+	response := httptest.NewRecorder()
+
+	server.handleDiagnostics(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "activePenBackend") {
+		t.Fatalf("expected diagnostics response, got %s", response.Body.String())
+	}
+}
+
 type recordingInjector struct {
 	events  []input.PenEvent
 	backend pen.Backend
