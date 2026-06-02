@@ -1,13 +1,16 @@
 package web
 
 import (
+	"embed"
 	"encoding/json"
 	"errors"
 	"image/jpeg"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,6 +19,9 @@ import (
 	"ppap/server/internal/pen"
 	"ppap/server/internal/screen"
 )
+
+//go:embed static
+var embeddedClientFiles embed.FS
 
 type ServerConfig struct {
 	ClientDir string
@@ -130,23 +136,35 @@ func (server *Server) staticHandler() http.Handler {
 			"../../client/dist",
 		})
 	}
-	if clientDir == "" {
+	if clientDir != "" {
+		return spaFileServer(os.DirFS(clientDir))
+	}
+
+	clientFiles, err := fs.Sub(embeddedClientFiles, "static")
+	if err != nil {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			writer.WriteHeader(http.StatusNotFound)
-			_, _ = writer.Write([]byte("client build not found; run npm run build in client or use the Vite dev server"))
+			http.Error(writer, "embedded client build is unavailable", http.StatusInternalServerError)
 		})
 	}
 
-	fileServer := http.FileServer(http.Dir(clientDir))
+	return spaFileServer(clientFiles)
+}
+
+func spaFileServer(fileSystem fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(fileSystem))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		path := filepath.Join(clientDir, filepath.Clean(request.URL.Path))
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		filePath := strings.TrimPrefix(path.Clean("/"+request.URL.Path), "/")
+		if filePath == "" {
+			filePath = "index.html"
+		}
+
+		if info, err := fs.Stat(fileSystem, filePath); err == nil && !info.IsDir() {
+			request.URL.Path = "/" + filePath
 			fileServer.ServeHTTP(writer, request)
 			return
 		}
 
-		http.ServeFile(writer, request, filepath.Join(clientDir, "index.html"))
+		http.ServeFileFS(writer, request, fileSystem, "index.html")
 	})
 }
 

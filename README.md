@@ -62,6 +62,19 @@ Open the Windows machine LAN URL from the iPad, for example:
 http://192.168.1.50:4040
 ```
 
+## Create A Windows Release
+
+Push a version tag to build a standalone Windows x64 binary and create a GitHub Release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds the client, embeds it into the Go server, cross-compiles `ppap-server-windows-amd64.exe`, and uploads a `.zip` plus `SHA256SUMS`.
+
+You can also run the `Release Windows x64` workflow manually from GitHub Actions with a release tag input.
+
 ## App Setup Notes
 
 For Krita and Photoshop testing:
