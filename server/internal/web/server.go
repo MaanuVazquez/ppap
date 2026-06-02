@@ -152,8 +152,25 @@ func (server *Server) handleScreenJPEG(writer http.ResponseWriter, request *http
 	writer.Header().Set("Content-Type", "image/jpeg")
 	writer.Header().Set("Cache-Control", "no-store")
 	if err := jpeg.Encode(writer, image, &jpeg.Options{Quality: 55}); err != nil {
+		if isClientDisconnect(request, err) {
+			return
+		}
+
 		log.Printf("jpeg encode failed: %v", err)
 	}
+}
+
+func isClientDisconnect(request *http.Request, err error) bool {
+	if request.Context().Err() != nil {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "broken pipe") ||
+		strings.Contains(message, "connection reset by peer") ||
+		strings.Contains(message, "connection was aborted") ||
+		strings.Contains(message, "forcibly closed") ||
+		strings.Contains(message, "wsasend")
 }
 
 func (server *Server) staticHandler() http.Handler {

@@ -8,8 +8,10 @@ export class ScreenPreview {
   private readonly image: HTMLImageElement;
   private readonly intervalMs: number;
   private readonly onError: (message: string) => void;
-  private timer: number | null = null;
+  private timeoutId: number | null = null;
+  private abortController: AbortController | null = null;
   private objectUrl: string | null = null;
+  private stopped = true;
 
   public constructor(options: ScreenPreviewOptions) {
     this.image = options.image;
@@ -19,16 +21,19 @@ export class ScreenPreview {
 
   public start(): void {
     this.stop();
-    void this.refresh();
-    this.timer = window.setInterval(() => {
-      void this.refresh();
-    }, this.intervalMs);
+    this.stopped = false;
+    this.scheduleNextRefresh(0);
   }
 
   public stop(): void {
-    if (this.timer !== null) {
-      window.clearInterval(this.timer);
-      this.timer = null;
+    this.stopped = true;
+    if (this.timeoutId !== null) {
+      window.clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+    if (this.abortController !== null) {
+      this.abortController.abort();
+      this.abortController = null;
     }
     if (this.objectUrl !== null) {
       URL.revokeObjectURL(this.objectUrl);
@@ -36,9 +41,28 @@ export class ScreenPreview {
     }
   }
 
+  private scheduleNextRefresh(delayMs: number): void {
+    if (this.stopped) {
+      return;
+    }
+
+    this.timeoutId = window.setTimeout(() => {
+      this.timeoutId = null;
+      void this.refresh().finally(() => {
+        this.scheduleNextRefresh(this.intervalMs);
+      });
+    }, delayMs);
+  }
+
   private async refresh(): Promise<void> {
+    const abortController = new AbortController();
+    this.abortController = abortController;
+
     try {
-      const response = await fetch(`/api/screen.jpg?t=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`/api/screen.jpg?t=${Date.now()}`, {
+        cache: "no-store",
+        signal: abortController.signal,
+      });
       if (!response.ok) {
         throw new Error(`screen preview failed: ${response.status}`);
       }
@@ -53,8 +77,20 @@ export class ScreenPreview {
         URL.revokeObjectURL(previousUrl);
       }
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "screen preview failed";
       this.onError(message);
+    } finally {
+      if (this.abortController === abortController) {
+        this.abortController = null;
+      }
     }
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
