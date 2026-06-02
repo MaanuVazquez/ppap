@@ -64,14 +64,16 @@ http://192.168.1.50:4040
 
 ## Create A Windows Release
 
-Push a version tag to build a standalone Windows x64 binary and create a GitHub Release:
+Every push to `main` builds a standalone Windows x64 binary and creates a GitHub Release named after the commit SHA, for example `build-2493eeb`.
+
+Push a version tag when you want a named version release:
 
 ```sh
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow builds the client, embeds it into the Go server, cross-compiles `ppap-server-windows-amd64.exe`, and uploads a `.zip` plus `SHA256SUMS`.
+The release workflow builds the client, embeds it into the Go server, cross-compiles a Windows x64 `.exe`, and uploads a `.zip` plus `SHA256SUMS`.
 
 You can also run the `Release Windows x64` workflow manually from GitHub Actions with a release tag input.
 

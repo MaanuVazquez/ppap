@@ -2,6 +2,8 @@ name: Release Windows x64
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -22,6 +24,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_tag="$MANUAL_RELEASE_TAG"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="build-$short_sha"
+          fi
+
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "asset_base=ppap-server-windows-amd64-$short_sha" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
@@ -58,41 +78,46 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: "0"
+          ASSET_BASE: ${{ steps.release.outputs.asset_base }}
         run: |
           mkdir -p ../dist
-          go build -trimpath -ldflags="-s -w" -o ../dist/ppap-server-windows-amd64.exe ./cmd/ppap-server
+          go build -trimpath -ldflags="-s -w" -o "../dist/${ASSET_BASE}.exe" ./cmd/ppap-server
 
       - name: Package release asset
+        env:
+          ASSET_BASE: ${{ steps.release.outputs.asset_base }}
         run: |
           cp README.md dist/README.md
           cd dist
-          zip -9 ppap-server-windows-amd64.zip ppap-server-windows-amd64.exe README.md
-          shasum -a 256 ppap-server-windows-amd64.zip ppap-server-windows-amd64.exe > SHA256SUMS
+          zip -9 "${ASSET_BASE}.zip" "${ASSET_BASE}.exe" README.md
+          shasum -a 256 "${ASSET_BASE}.zip" "${ASSET_BASE}.exe" > SHA256SUMS
 
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ppap-server-windows-amd64
+          name: ${{ steps.release.outputs.asset_base }}
           path: |
-            dist/ppap-server-windows-amd64.zip
+            dist/${{ steps.release.outputs.asset_base }}.zip
             dist/SHA256SUMS
           if-no-files-found: error
 
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          ASSET_BASE: ${{ steps.release.outputs.asset_base }}
+          SHORT_SHA: ${{ steps.release.outputs.short_sha }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" \
-              dist/ppap-server-windows-amd64.zip \
+              "dist/${ASSET_BASE}.zip" \
               dist/SHA256SUMS \
               --clobber
           else
             gh release create "$RELEASE_TAG" \
-              dist/ppap-server-windows-amd64.zip \
+              "dist/${ASSET_BASE}.zip" \
               dist/SHA256SUMS \
               --target "$GITHUB_SHA" \
               --title "PPAP $RELEASE_TAG" \
-              --notes "Windows x64 MVP build."
+              --notes "Windows x64 MVP build for commit $SHORT_SHA."
           fi
