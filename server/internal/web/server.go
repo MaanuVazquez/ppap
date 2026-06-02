@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,9 +25,10 @@ import (
 var embeddedClientFiles embed.FS
 
 type ServerConfig struct {
-	ClientDir string
-	Injector  pen.Injector
-	Capturer  screen.Capturer
+	ClientDir    string
+	Injector     pen.Injector
+	Capturer     screen.Capturer
+	LogPenEvents bool
 }
 
 type Server struct {
@@ -34,13 +36,17 @@ type Server struct {
 	injector  pen.Injector
 	capturer  screen.Capturer
 	upgrader  websocket.Upgrader
+
+	logPenEvents bool
+	penEvents    atomic.Uint64
 }
 
 func NewServer(config ServerConfig) *Server {
 	return &Server{
-		clientDir: config.ClientDir,
-		injector:  config.Injector,
-		capturer:  config.Capturer,
+		clientDir:    config.ClientDir,
+		injector:     config.Injector,
+		capturer:     config.Capturer,
+		logPenEvents: config.LogPenEvents,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
@@ -97,6 +103,7 @@ func (server *Server) handlePenSocket(writer http.ResponseWriter, request *http.
 			server.writeSocketError(connection, "invalid-event", err)
 			continue
 		}
+		server.logPenEvent(event)
 		if server.injector == nil {
 			server.writeSocketError(connection, "injector-unavailable", errors.New("pen injector is unavailable"))
 			continue
@@ -105,6 +112,28 @@ func (server *Server) handlePenSocket(writer http.ResponseWriter, request *http.
 			server.writeSocketError(connection, "inject-failed", err)
 			continue
 		}
+	}
+}
+
+func (server *Server) logPenEvent(event input.PenEvent) {
+	if !server.logPenEvents {
+		return
+	}
+
+	count := server.penEvents.Add(1)
+	if count <= 20 || count%120 == 0 || event.Type != input.PenEventMove {
+		log.Printf(
+			"pen event #%d type=%s x=%.4f y=%.4f pressure=%.4f tilt=(%.1f,%.1f) twist=%.1f pointerId=%d",
+			count,
+			event.Type,
+			event.X,
+			event.Y,
+			event.Pressure,
+			event.TiltX,
+			event.TiltY,
+			event.Twist,
+			event.PointerID,
+		)
 	}
 }
 

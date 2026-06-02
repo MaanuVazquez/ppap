@@ -7,12 +7,11 @@ import (
 	"image"
 	"syscall"
 	"unsafe"
+
+	"ppap/server/internal/display"
 )
 
 const (
-	smCXScreen = 0
-	smCYScreen = 1
-
 	biRGB        = 0
 	dibRGBColors = 0
 	srcCopy      = 0x00CC0020
@@ -22,7 +21,6 @@ var (
 	user32 = syscall.NewLazyDLL("user32.dll")
 	gdi32  = syscall.NewLazyDLL("gdi32.dll")
 
-	procGetSystemMetrics       = user32.NewProc("GetSystemMetrics")
 	procGetDC                  = user32.NewProc("GetDC")
 	procReleaseDC              = user32.NewProc("ReleaseDC")
 	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
@@ -60,9 +58,9 @@ func NewCapturer() (Capturer, error) {
 }
 
 func (capturer *windowsCapturer) Capture() (image.Image, error) {
-	width, height := desktopSize()
-	if width <= 0 || height <= 0 {
-		return nil, fmt.Errorf("could not read desktop size")
+	bounds := display.VirtualBounds()
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return nil, fmt.Errorf("could not read virtual desktop bounds")
 	}
 
 	desktopDC, _, err := procGetDC.Call(0)
@@ -77,7 +75,7 @@ func (capturer *windowsCapturer) Capture() (image.Image, error) {
 	}
 	defer procDeleteDC.Call(memoryDC)
 
-	bitmap, _, err := procCreateCompatibleBitmap.Call(desktopDC, uintptr(width), uintptr(height))
+	bitmap, _, err := procCreateCompatibleBitmap.Call(desktopDC, uintptr(bounds.Width), uintptr(bounds.Height))
 	if bitmap == 0 {
 		return nil, fmt.Errorf("CreateCompatibleBitmap failed: %w", err)
 	}
@@ -92,24 +90,24 @@ func (capturer *windowsCapturer) Capture() (image.Image, error) {
 		memoryDC,
 		0,
 		0,
-		uintptr(width),
-		uintptr(height),
+		uintptr(bounds.Width),
+		uintptr(bounds.Height),
 		desktopDC,
-		0,
-		0,
+		intToUintptr(bounds.Left),
+		intToUintptr(bounds.Top),
 		uintptr(srcCopy),
 	)
 	if bltResult == 0 {
 		return nil, fmt.Errorf("BitBlt failed: %w", err)
 	}
 
-	pixelBytes := width * height * 4
+	pixelBytes := bounds.Width * bounds.Height * 4
 	pixels := make([]byte, pixelBytes)
 	info := bitmapInfo{
 		Header: bitmapInfoHeader{
 			Size:        uint32(unsafe.Sizeof(bitmapInfoHeader{})),
-			Width:       int32(width),
-			Height:      -int32(height),
+			Width:       int32(bounds.Width),
+			Height:      -int32(bounds.Height),
 			Planes:      1,
 			BitCount:    32,
 			Compression: biRGB,
@@ -121,7 +119,7 @@ func (capturer *windowsCapturer) Capture() (image.Image, error) {
 		memoryDC,
 		bitmap,
 		0,
-		uintptr(height),
+		uintptr(bounds.Height),
 		uintptr(unsafe.Pointer(&pixels[0])),
 		uintptr(unsafe.Pointer(&info)),
 		uintptr(dibRGBColors),
@@ -130,8 +128,8 @@ func (capturer *windowsCapturer) Capture() (image.Image, error) {
 		return nil, fmt.Errorf("GetDIBits failed: %w", err)
 	}
 
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for i := 0; i < width*height; i++ {
+	img := image.NewRGBA(image.Rect(0, 0, bounds.Width, bounds.Height))
+	for i := 0; i < bounds.Width*bounds.Height; i++ {
 		src := i * 4
 		dst := i * 4
 		img.Pix[dst] = pixels[src+2]
@@ -147,9 +145,6 @@ func (capturer *windowsCapturer) Close() error {
 	return nil
 }
 
-func desktopSize() (int, int) {
-	width, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
-	height, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
-
-	return int(width), int(height)
+func intToUintptr(value int) uintptr {
+	return uintptr(int32(value))
 }

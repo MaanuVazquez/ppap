@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"ppap/server/internal/pen"
+	"ppap/server/internal/platform"
 	"ppap/server/internal/screen"
 	"ppap/server/internal/web"
 )
@@ -13,7 +14,12 @@ import (
 func main() {
 	addr := flag.String("addr", ":4040", "HTTP listen address")
 	clientDir := flag.String("client-dir", "", "built client directory to serve")
+	logPenEvents := flag.Bool("log-pen-events", false, "log sampled pen events received from clients")
 	flag.Parse()
+
+	if err := platform.EnableDPIAwareness(); err != nil {
+		log.Printf("DPI awareness setup failed: %v", err)
+	}
 
 	injector, err := pen.NewInjector()
 	if err != nil {
@@ -32,9 +38,10 @@ func main() {
 	}
 
 	server := web.NewServer(web.ServerConfig{
-		ClientDir: *clientDir,
-		Injector:  injector,
-		Capturer:  capturer,
+		ClientDir:    *clientDir,
+		Injector:     injector,
+		Capturer:     capturer,
+		LogPenEvents: *logPenEvents,
 	})
 
 	log.Printf("ppap server listening on %s", *addr)

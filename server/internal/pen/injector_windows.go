@@ -5,30 +5,33 @@ package pen
 import (
 	"fmt"
 	"math"
+	"sync"
 	"syscall"
 	"unsafe"
 
+	"ppap/server/internal/display"
 	"ppap/server/internal/input"
 )
 
 const (
 	pointerInputTypePen = 3
 
-	pointerFeedbackDefault = 1
+	pointerFeedbackNone = 3
 
-	pointerFlagInRange   = 0x00000002
-	pointerFlagInContact = 0x00000004
-	pointerFlagDown      = 0x00010000
-	pointerFlagUpdate    = 0x00020000
-	pointerFlagUp        = 0x00040000
+	pointerFlagNew        = 0x00000001
+	pointerFlagInRange    = 0x00000002
+	pointerFlagInContact  = 0x00000004
+	pointerFlagFirstBtn   = 0x00000010
+	pointerFlagPrimary    = 0x00002000
+	pointerFlagConfidence = 0x00004000
+	pointerFlagDown       = 0x00010000
+	pointerFlagUpdate     = 0x00020000
+	pointerFlagUp         = 0x00040000
 
 	penMaskPressure = 0x00000001
 	penMaskRotation = 0x00000002
 	penMaskTiltX    = 0x00000004
 	penMaskTiltY    = 0x00000008
-
-	smCXScreen = 0
-	smCYScreen = 1
 )
 
 var (
@@ -37,7 +40,6 @@ var (
 	procCreateSyntheticPointerDevice  = user32.NewProc("CreateSyntheticPointerDevice")
 	procInjectSyntheticPointerInput   = user32.NewProc("InjectSyntheticPointerInput")
 	procDestroySyntheticPointerDevice = user32.NewProc("DestroySyntheticPointerDevice")
-	procGetSystemMetrics              = user32.NewProc("GetSystemMetrics")
 )
 
 type point struct {
@@ -82,6 +84,8 @@ type pointerTypeInfo struct {
 
 type windowsInjector struct {
 	device uintptr
+	mutex  sync.Mutex
+	isDown bool
 }
 
 func NewInjector() (Injector, error) {
@@ -92,40 +96,50 @@ func NewInjector() (Injector, error) {
 	device, _, err := procCreateSyntheticPointerDevice.Call(
 		uintptr(pointerInputTypePen),
 		uintptr(1),
-		uintptr(pointerFeedbackDefault),
+		uintptr(pointerFeedbackNone),
 	)
 	if device == 0 {
-		return nil, fmt.Errorf("CreateSyntheticPointerDevice failed: %w", err)
+		return nil, fmt.Errorf("CreateSyntheticPointerDevice failed: %w", normalizeSyscallError(err))
 	}
 
 	return &windowsInjector{device: device}, nil
 }
 
 func (injector *windowsInjector) Inject(event input.PenEvent) error {
+	injector.mutex.Lock()
+	defer injector.mutex.Unlock()
+
 	if err := event.Validate(); err != nil {
 		return err
 	}
 
-	width, height := screenSize()
-	if width <= 0 || height <= 0 {
-		return fmt.Errorf("could not read screen size")
+	bounds := display.VirtualBounds()
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return fmt.Errorf("could not read virtual screen bounds")
 	}
 
-	x := int32(math.Round(event.X * float64(width-1)))
-	y := int32(math.Round(event.Y * float64(height-1)))
+	x := int32(bounds.Left + int(math.Round(event.X*float64(bounds.Width-1))))
+	y := int32(bounds.Top + int(math.Round(event.Y*float64(bounds.Height-1))))
 	pressure := uint32(math.Round(event.Pressure * 1024))
 
-	flags := uint32(pointerFlagInRange)
+	flags := uint32(pointerFlagInRange | pointerFlagPrimary | pointerFlagConfidence)
 	switch event.Type {
 	case input.PenEventDown:
-		flags |= pointerFlagInContact | pointerFlagDown
+		flags |= pointerFlagNew | pointerFlagInContact | pointerFlagFirstBtn | pointerFlagDown
 		pressure = ensureContactPressure(pressure)
+		injector.isDown = true
 	case input.PenEventMove:
-		flags |= pointerFlagInContact | pointerFlagUpdate
-		pressure = ensureContactPressure(pressure)
+		flags |= pointerFlagUpdate
+		if injector.isDown {
+			flags |= pointerFlagInContact | pointerFlagFirstBtn
+			pressure = ensureContactPressure(pressure)
+		} else {
+			pressure = 0
+		}
 	case input.PenEventUp:
 		flags |= pointerFlagUp
 		pressure = 0
+		injector.isDown = false
 	}
 
 	packet := pointerTypeInfo{
@@ -152,7 +166,7 @@ func (injector *windowsInjector) Inject(event input.PenEvent) error {
 		uintptr(1),
 	)
 	if result == 0 {
-		return fmt.Errorf("InjectSyntheticPointerInput failed: %w", err)
+		return fmt.Errorf("InjectSyntheticPointerInput failed: %w", normalizeSyscallError(err))
 	}
 
 	return nil
@@ -165,13 +179,6 @@ func (injector *windowsInjector) Close() error {
 	}
 
 	return nil
-}
-
-func screenSize() (int, int) {
-	width, _, _ := procGetSystemMetrics.Call(uintptr(smCXScreen))
-	height, _, _ := procGetSystemMetrics.Call(uintptr(smCYScreen))
-
-	return int(width), int(height)
 }
 
 func ensureContactPressure(pressure uint32) uint32 {
@@ -194,4 +201,12 @@ func clampInt(value float64, min int, max int) int {
 	}
 
 	return int(value)
+}
+
+func normalizeSyscallError(err error) error {
+	if errno, ok := err.(syscall.Errno); ok && errno == 0 {
+		return syscall.EINVAL
+	}
+
+	return err
 }
