@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>PPAP</title>
+  </head>
+  <body>
+    <div id="app">
+      <main class="tablet-shell">
+        <section class="toolbar" aria-label="Connection status">
+          <div>
+            <strong>PPAP</strong>
+            <span id="connectionStatus">Disconnected</span>
+          </div>
+          <div class="metrics">
+            <span id="pointerStatus">Pointer: none</span>
+            <span id="pressureStatus">Pressure: 0.00</span>
+          </div>
+        </section>
+
+        <section id="stage" class="stage" aria-label="Remote screen drawing surface">
+          <img id="screen" class="screen" alt="Windows screen preview" />
+          <canvas id="overlay" class="overlay"></canvas>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

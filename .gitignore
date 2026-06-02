@@ -1,0 +1,8 @@
+.DS_Store
+
+client/node_modules/
+client/dist/
+
+server/ppap-server
+server/ppap-server.exe
+server/*.exe
