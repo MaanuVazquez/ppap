@@ -62,6 +62,7 @@ func (server *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", server.handleHealth)
 	mux.HandleFunc("/api/pen", server.handlePenSocket)
+	mux.HandleFunc("/api/pen/test-stroke", server.handlePenTestStroke)
 	mux.HandleFunc("/api/screen.jpg", server.handleScreenJPEG)
 	mux.Handle("/", server.staticHandler())
 
@@ -114,6 +115,49 @@ func (server *Server) handlePenSocket(writer http.ResponseWriter, request *http.
 			continue
 		}
 	}
+}
+
+func (server *Server) handlePenTestStroke(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if server.injector == nil {
+		http.Error(writer, "pen injector is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := server.injectPressureTestStroke(); err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(writer, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+func (server *Server) injectPressureTestStroke() error {
+	const steps = 60
+	const startX = 0.35
+	const endX = 0.65
+	const y = 0.5
+
+	if err := server.injector.Inject(input.PenEvent{Type: input.PenEventDown, X: startX, Y: y, Pressure: 0.05}); err != nil {
+		return err
+	}
+	time.Sleep(16 * time.Millisecond)
+
+	for step := 1; step <= steps; step++ {
+		progress := float64(step) / float64(steps)
+		pressure := 0.05 + progress*0.95
+		x := startX + (endX-startX)*progress
+		if err := server.injector.Inject(input.PenEvent{Type: input.PenEventMove, X: x, Y: y, Pressure: pressure}); err != nil {
+			return err
+		}
+		time.Sleep(8 * time.Millisecond)
+	}
+
+	return server.injector.Inject(input.PenEvent{Type: input.PenEventUp, X: endX, Y: y, Pressure: 0})
 }
 
 func (server *Server) logPenEvent(event input.PenEvent) {

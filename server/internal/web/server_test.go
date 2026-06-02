@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
+
+	"ppap/server/internal/input"
 )
 
 func TestIsClientDisconnectRecognizesWindowsAbortedSend(t *testing.T) {
@@ -76,4 +78,40 @@ func TestSPAFileServerServesStaticAsset(t *testing.T) {
 	if response.Body.String() != "console.log('ok')" {
 		t.Fatalf("unexpected body %q", response.Body.String())
 	}
+}
+
+func TestInjectPressureTestStrokeRampsPressure(t *testing.T) {
+	injector := &recordingInjector{}
+	server := NewServer(ServerConfig{Injector: injector})
+
+	if err := server.injectPressureTestStroke(); err != nil {
+		t.Fatalf("expected pressure test stroke to inject: %v", err)
+	}
+
+	if len(injector.events) != 62 {
+		t.Fatalf("expected 62 pen events, got %d", len(injector.events))
+	}
+	if injector.events[0].Type != input.PenEventDown {
+		t.Fatalf("expected first event down, got %s", injector.events[0].Type)
+	}
+	lastEvent := injector.events[len(injector.events)-1]
+	if lastEvent.Type != input.PenEventUp {
+		t.Fatalf("expected last event up, got %s", lastEvent.Type)
+	}
+	if injector.events[1].Pressure >= injector.events[len(injector.events)-2].Pressure {
+		t.Fatalf("expected pressure ramp, got start %.2f end %.2f", injector.events[1].Pressure, injector.events[len(injector.events)-2].Pressure)
+	}
+}
+
+type recordingInjector struct {
+	events []input.PenEvent
+}
+
+func (injector *recordingInjector) Inject(event input.PenEvent) error {
+	injector.events = append(injector.events, event)
+	return nil
+}
+
+func (injector *recordingInjector) Close() error {
+	return nil
 }

@@ -10,11 +10,9 @@ const screen = getElementById<HTMLImageElement>("screen");
 const connectionStatus = getElementById<HTMLSpanElement>("connectionStatus");
 const pointerStatus = getElementById<HTMLSpanElement>("pointerStatus");
 const pressureStatus = getElementById<HTMLSpanElement>("pressureStatus");
-
-const context = getCanvasContext(overlay);
+const pressureTestButton = getElementById<HTMLButtonElement>("pressureTestButton");
 
 let activePointerId: number | null = null;
-let previousPoint: StagePoint | null = null;
 
 const transport = new PenTransport({
   onStateChange: (state) => {
@@ -41,6 +39,10 @@ void loadHealth();
 window.addEventListener("resize", resizeOverlay);
 window.addEventListener("orientationchange", resizeOverlay);
 
+pressureTestButton.addEventListener("click", () => {
+  void runPressureTest();
+});
+
 stage.addEventListener("pointerdown", (event) => {
   if (activePointerId !== null) {
     return;
@@ -51,9 +53,7 @@ stage.addEventListener("pointerdown", (event) => {
   stage.setPointerCapture(event.pointerId);
 
   const point = pointFromPointerEvent(event);
-  previousPoint = point;
   sendPenEvent("down", event, point);
-  drawPoint(point, pressureFromPointerEvent(event));
 });
 
 stage.addEventListener("pointermove", (event) => {
@@ -68,8 +68,6 @@ stage.addEventListener("pointermove", (event) => {
   for (const item of events) {
     const point = pointFromPointerEvent(item);
     sendPenEvent("move", item, point);
-    drawStroke(point, pressureFromPointerEvent(item));
-    previousPoint = point;
   }
 });
 
@@ -86,7 +84,6 @@ function handlePointerEnd(event: PointerEvent): void {
   sendPenEvent("up", event, point);
   stage.releasePointerCapture(event.pointerId);
   activePointerId = null;
-  previousPoint = null;
 }
 
 function sendPenEvent(type: PenEventType, event: PointerEvent, point: StagePoint): void {
@@ -161,29 +158,6 @@ function pressureFromPointerEvent(event: PointerEvent): number {
   return event.buttons === 0 ? 0 : 0.5;
 }
 
-function drawPoint(point: StagePoint, pressure: number): void {
-  context.fillStyle = "rgba(110, 168, 254, 0.7)";
-  context.beginPath();
-  context.arc(point.x, point.y, Math.max(2, pressure * 12), 0, Math.PI * 2);
-  context.fill();
-}
-
-function drawStroke(point: StagePoint, pressure: number): void {
-  if (previousPoint === null) {
-    drawPoint(point, pressure);
-    return;
-  }
-
-  context.strokeStyle = "rgba(110, 168, 254, 0.7)";
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.lineWidth = Math.max(2, pressure * 18);
-  context.beginPath();
-  context.moveTo(previousPoint.x, previousPoint.y);
-  context.lineTo(point.x, point.y);
-  context.stroke();
-}
-
 function resizeOverlay(): void {
   const scale = window.devicePixelRatio || 1;
   const width = Math.max(1, Math.floor(stage.clientWidth * scale));
@@ -193,8 +167,27 @@ function resizeOverlay(): void {
   overlay.height = height;
   overlay.style.width = `${stage.clientWidth}px`;
   overlay.style.height = `${stage.clientHeight}px`;
-  context.setTransform(scale, 0, 0, scale, 0, 0);
-  context.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
+}
+
+async function runPressureTest(): Promise<void> {
+  pressureTestButton.disabled = true;
+  connectionStatus.textContent = "Running pressure test";
+
+  try {
+    const response = await fetch("/api/pen/test-stroke", {
+      method: "POST",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`pressure test failed: ${response.status}`);
+    }
+
+    connectionStatus.textContent = "Pressure test sent";
+  } catch (error) {
+    connectionStatus.textContent = error instanceof Error ? error.message : "Pressure test failed";
+  } finally {
+    pressureTestButton.disabled = false;
+  }
 }
 
 async function loadHealth(): Promise<void> {
@@ -218,15 +211,6 @@ function getElementById<TElement extends HTMLElement>(id: string): TElement {
   }
 
   return element as TElement;
-}
-
-function getCanvasContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
-  const canvasContext = canvas.getContext("2d");
-  if (canvasContext === null) {
-    throw new Error("2D canvas context is unavailable");
-  }
-
-  return canvasContext;
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -28,6 +28,10 @@ const (
 	pointerFlagUpdate     = 0x00020000
 	pointerFlagUp         = 0x00040000
 
+	pointerChangeNone            = 0
+	pointerChangeFirstButtonDown = 1
+	pointerChangeFirstButtonUp   = 2
+
 	penMaskPressure = 0x00000001
 	penMaskRotation = 0x00000002
 	penMaskTiltX    = 0x00000004
@@ -123,10 +127,12 @@ func (injector *windowsInjector) Inject(event input.PenEvent) error {
 	pressure := uint32(math.Round(event.Pressure * 1024))
 
 	flags := uint32(pointerFlagInRange | pointerFlagPrimary | pointerFlagConfidence)
+	buttonChangeType := int32(pointerChangeNone)
 	switch event.Type {
 	case input.PenEventDown:
 		flags |= pointerFlagNew | pointerFlagInContact | pointerFlagFirstBtn | pointerFlagDown
 		pressure = ensureContactPressure(pressure)
+		buttonChangeType = pointerChangeFirstButtonDown
 		injector.isDown = true
 	case input.PenEventMove:
 		flags |= pointerFlagUpdate
@@ -139,24 +145,42 @@ func (injector *windowsInjector) Inject(event input.PenEvent) error {
 	case input.PenEventUp:
 		flags |= pointerFlagUp
 		pressure = 0
+		buttonChangeType = pointerChangeFirstButtonUp
 		injector.isDown = false
+	}
+
+	location := point{X: x, Y: y}
+	penMask := uint32(penMaskPressure)
+	rotation := uint32(clampInt(math.Round(event.Twist), 0, 359))
+	tiltX := int32(clampInt(math.Round(event.TiltX), -90, 90))
+	tiltY := int32(clampInt(math.Round(event.TiltY), -90, 90))
+	if rotation != 0 {
+		penMask |= penMaskRotation
+	}
+	if tiltX != 0 {
+		penMask |= penMaskTiltX
+	}
+	if tiltY != 0 {
+		penMask |= penMaskTiltY
 	}
 
 	packet := pointerTypeInfo{
 		Type: pointerInputTypePen,
 		Pen: pointerPenInfo{
 			PointerInfo: pointerInfo{
-				PointerType:     pointerInputTypePen,
-				PointerID:       1,
-				PointerFlags:    flags,
-				PtPixelLocation: point{X: x, Y: y},
-				HistoryCount:    1,
+				PointerType:        pointerInputTypePen,
+				PointerID:          1,
+				PointerFlags:       flags,
+				PtPixelLocation:    location,
+				PtPixelLocationRaw: location,
+				HistoryCount:       1,
+				ButtonChangeType:   buttonChangeType,
 			},
-			PenMask:  penMaskPressure | penMaskRotation | penMaskTiltX | penMaskTiltY,
+			PenMask:  penMask,
 			Pressure: pressure,
-			Rotation: uint32(clampInt(math.Round(event.Twist), 0, 359)),
-			TiltX:    int32(clampInt(math.Round(event.TiltX), -90, 90)),
-			TiltY:    int32(clampInt(math.Round(event.TiltY), -90, 90)),
+			Rotation: rotation,
+			TiltX:    tiltX,
+			TiltY:    tiltY,
 		},
 	}
 
