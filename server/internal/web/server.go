@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -197,7 +198,6 @@ func (server *Server) staticHandler() http.Handler {
 }
 
 func spaFileServer(fileSystem fs.FS) http.Handler {
-	fileServer := http.FileServer(http.FS(fileSystem))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		filePath := strings.TrimPrefix(path.Clean("/"+request.URL.Path), "/")
 		if filePath == "" {
@@ -205,13 +205,27 @@ func spaFileServer(fileSystem fs.FS) http.Handler {
 		}
 
 		if info, err := fs.Stat(fileSystem, filePath); err == nil && !info.IsDir() {
-			request.URL.Path = "/" + filePath
-			fileServer.ServeHTTP(writer, request)
+			serveFileFromFS(writer, request, fileSystem, filePath, info)
 			return
 		}
 
-		http.ServeFileFS(writer, request, fileSystem, "index.html")
+		info, err := fs.Stat(fileSystem, "index.html")
+		if err != nil || info.IsDir() {
+			http.NotFound(writer, request)
+			return
+		}
+		serveFileFromFS(writer, request, fileSystem, "index.html", info)
 	})
+}
+
+func serveFileFromFS(writer http.ResponseWriter, request *http.Request, fileSystem fs.FS, filePath string, info fs.FileInfo) {
+	content, err := fs.ReadFile(fileSystem, filePath)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.ServeContent(writer, request, path.Base(filePath), info.ModTime(), bytes.NewReader(content))
 }
 
 func (server *Server) writeSocketError(connection *websocket.Conn, code string, err error) {
