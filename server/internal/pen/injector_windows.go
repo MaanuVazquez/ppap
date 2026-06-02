@@ -98,6 +98,16 @@ func NewInjector() (Controller, error) {
 	if err != nil {
 		return nil, err
 	}
+	winTab, winTabErr := newWinTabBridgeInjector()
+	winTabInfo := BackendInfo{
+		ID:        BackendWinTab,
+		Label:     "WinTab Proxy",
+		Available: true,
+	}
+	if winTabErr != nil {
+		winTabInfo.Available = false
+		winTabInfo.Reason = winTabErr.Error()
+	}
 
 	return newController(BackendWindowsInk, []backendEntry{
 		{
@@ -108,11 +118,7 @@ func NewInjector() (Controller, error) {
 			},
 			injector: windowsInk,
 		},
-		unavailableBackend(
-			BackendWinTab,
-			"WinTab",
-			"WinTab does not expose a global user-mode injection API; support requires a virtual tablet driver or Wintab32 proxy inside the target app.",
-		),
+		{info: winTabInfo, injector: winTab},
 	}), nil
 }
 

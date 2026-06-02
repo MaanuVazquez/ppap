@@ -1,11 +1,14 @@
 package pen
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
 	"ppap/server/internal/input"
 )
+
+var errWinTabBridgeUnavailable = errors.New("WinTab bridge requires windows/amd64")
 
 type Backend string
 

@@ -86,8 +86,21 @@ For Krita and Photoshop testing:
 - Keep the Go server and target app in the same Windows desktop session.
 - If the target app runs elevated, run the server elevated too.
 - Use the `Pressure Test` button in the iPad client to inject a server-generated pressure ramp into the focused drawing app.
-- The backend switch currently exposes Windows Ink and a WinTab scaffold. WinTab is reported as unavailable until PPAP has a virtual tablet driver or Wintab32 proxy, because WinTab does not provide a global user-mode injection API.
+- The backend switch exposes Windows Ink and the experimental WinTab proxy bridge.
 - Open `/api/diagnostics` on the server to confirm the active backend, foreground Windows window, and virtual desktop bounds while testing.
+
+## Experimental WinTab Proxy
+
+The release zip includes an experimental `Wintab32.dll` proxy. To test it with Krita:
+
+- Close Krita.
+- Copy `Wintab32.dll` from the PPAP release zip next to the Krita executable that launches the process.
+- Start the PPAP server.
+- Open the iPad client and switch backend to `WinTab Proxy`.
+- Start Krita and select WinTab/tablet input if Krita exposes that setting.
+- Draw from the iPad or use `Pressure Test`.
+
+This is an app-local proxy experiment, not a signed system tablet driver. If Krita does not load app-local `Wintab32.dll`, or if it requires more WinTab API surface, the next step is extending the proxy based on observed missing exports/calls.
 
 ## Current Limitations
 
