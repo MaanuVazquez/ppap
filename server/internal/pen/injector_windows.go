@@ -86,13 +86,36 @@ type pointerTypeInfo struct {
 	Pen  pointerPenInfo
 }
 
-type windowsInjector struct {
+type windowsInkInjector struct {
 	device uintptr
 	mutex  sync.Mutex
 	isDown bool
 }
 
-func NewInjector() (Injector, error) {
+func NewInjector() (Controller, error) {
+	windowsInk, err := newWindowsInkInjector()
+	if err != nil {
+		return nil, err
+	}
+
+	return newController(BackendWindowsInk, []backendEntry{
+		{
+			info: BackendInfo{
+				ID:        BackendWindowsInk,
+				Label:     "Windows Ink",
+				Available: true,
+			},
+			injector: windowsInk,
+		},
+		unavailableBackend(
+			BackendWinTab,
+			"WinTab",
+			"WinTab does not expose a global user-mode injection API; support requires a virtual tablet driver or Wintab32 proxy inside the target app.",
+		),
+	}), nil
+}
+
+func newWindowsInkInjector() (Injector, error) {
 	if err := user32.Load(); err != nil {
 		return nil, fmt.Errorf("load user32.dll: %w", err)
 	}
@@ -106,10 +129,10 @@ func NewInjector() (Injector, error) {
 		return nil, fmt.Errorf("CreateSyntheticPointerDevice failed: %w", normalizeSyscallError(err))
 	}
 
-	return &windowsInjector{device: device}, nil
+	return &windowsInkInjector{device: device}, nil
 }
 
-func (injector *windowsInjector) Inject(event input.PenEvent) error {
+func (injector *windowsInkInjector) Inject(event input.PenEvent) error {
 	injector.mutex.Lock()
 	defer injector.mutex.Unlock()
 
@@ -196,7 +219,7 @@ func (injector *windowsInjector) Inject(event input.PenEvent) error {
 	return nil
 }
 
-func (injector *windowsInjector) Close() error {
+func (injector *windowsInkInjector) Close() error {
 	if injector.device != 0 {
 		procDestroySyntheticPointerDevice.Call(injector.device)
 		injector.device = 0

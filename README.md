@@ -85,6 +85,8 @@ For Krita and Photoshop testing:
 - Select a brush configured to use pressure for size or opacity.
 - Keep the Go server and target app in the same Windows desktop session.
 - If the target app runs elevated, run the server elevated too.
+- Use the `Pressure Test` button in the iPad client to inject a server-generated pressure ramp into the focused drawing app.
+- The backend switch currently exposes Windows Ink and a WinTab scaffold. WinTab is reported as unavailable until PPAP has a virtual tablet driver or Wintab32 proxy, because WinTab does not provide a global user-mode injection API.
 
 ## Current Limitations
 

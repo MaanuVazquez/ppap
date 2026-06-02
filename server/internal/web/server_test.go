@@ -4,10 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"ppap/server/internal/input"
+	"ppap/server/internal/pen"
 )
 
 func TestIsClientDisconnectRecognizesWindowsAbortedSend(t *testing.T) {
@@ -103,8 +105,36 @@ func TestInjectPressureTestStrokeRampsPressure(t *testing.T) {
 	}
 }
 
+func TestPenBackendStatus(t *testing.T) {
+	server := NewServer(ServerConfig{Injector: &recordingInjector{}})
+	request := httptest.NewRequest(http.MethodGet, "/api/pen/backend", nil)
+	response := httptest.NewRecorder()
+
+	server.handlePenBackend(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), string(pen.BackendWindowsInk)) {
+		t.Fatalf("expected Windows Ink backend in response, got %s", response.Body.String())
+	}
+}
+
+func TestPenBackendSwitchRejectsUnavailableBackend(t *testing.T) {
+	server := NewServer(ServerConfig{Injector: &recordingInjector{}})
+	request := httptest.NewRequest(http.MethodPost, "/api/pen/backend", strings.NewReader(`{"backend":"winTab"}`))
+	response := httptest.NewRecorder()
+
+	server.handlePenBackend(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", response.Code)
+	}
+}
+
 type recordingInjector struct {
-	events []input.PenEvent
+	events  []input.PenEvent
+	backend pen.Backend
 }
 
 func (injector *recordingInjector) Inject(event input.PenEvent) error {
@@ -113,5 +143,29 @@ func (injector *recordingInjector) Inject(event input.PenEvent) error {
 }
 
 func (injector *recordingInjector) Close() error {
+	return nil
+}
+
+func (injector *recordingInjector) ActiveBackend() pen.Backend {
+	if injector.backend == "" {
+		return pen.BackendWindowsInk
+	}
+
+	return injector.backend
+}
+
+func (injector *recordingInjector) Backends() []pen.BackendInfo {
+	return []pen.BackendInfo{
+		{ID: pen.BackendWindowsInk, Label: "Windows Ink", Available: true},
+		{ID: pen.BackendWinTab, Label: "WinTab", Available: false, Reason: "test unavailable"},
+	}
+}
+
+func (injector *recordingInjector) SetBackend(backend pen.Backend) error {
+	if backend == pen.BackendWinTab {
+		return errors.New("test unavailable")
+	}
+
+	injector.backend = backend
 	return nil
 }

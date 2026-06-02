@@ -13,7 +13,22 @@ export interface PenEventMessage {
 
 export interface HealthResponse {
   penInjection: boolean;
+  activePenBackend: PenBackendId | "";
   screenCapture: boolean;
+}
+
+export type PenBackendId = "windowsInk" | "winTab";
+
+export interface PenBackendInfo {
+  id: PenBackendId;
+  label: string;
+  available: boolean;
+  reason?: string;
+}
+
+export interface PenBackendState {
+  active: PenBackendId;
+  backends: PenBackendInfo[];
 }
 
 export interface StagePoint {

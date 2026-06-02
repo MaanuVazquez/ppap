@@ -27,14 +27,14 @@ var embeddedClientFiles embed.FS
 
 type ServerConfig struct {
 	ClientDir    string
-	Injector     pen.Injector
+	Injector     pen.Controller
 	Capturer     screen.Capturer
 	LogPenEvents bool
 }
 
 type Server struct {
 	clientDir string
-	injector  pen.Injector
+	injector  pen.Controller
 	capturer  screen.Capturer
 	upgrader  websocket.Upgrader
 
@@ -62,6 +62,7 @@ func (server *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", server.handleHealth)
 	mux.HandleFunc("/api/pen", server.handlePenSocket)
+	mux.HandleFunc("/api/pen/backend", server.handlePenBackend)
 	mux.HandleFunc("/api/pen/test-stroke", server.handlePenTestStroke)
 	mux.HandleFunc("/api/screen.jpg", server.handleScreenJPEG)
 	mux.Handle("/", server.staticHandler())
@@ -70,10 +71,54 @@ func (server *Server) Routes() http.Handler {
 }
 
 func (server *Server) handleHealth(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]bool{
-		"penInjection":  server.injector != nil,
-		"screenCapture": server.capturer != nil,
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"penInjection":     server.injector != nil,
+		"activePenBackend": server.activePenBackend(),
+		"screenCapture":    server.capturer != nil,
 	})
+}
+
+func (server *Server) handlePenBackend(writer http.ResponseWriter, request *http.Request) {
+	if server.injector == nil {
+		http.Error(writer, "pen injector is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch request.Method {
+	case http.MethodGet:
+		server.writePenBackendState(writer)
+	case http.MethodPost:
+		var payload struct {
+			Backend pen.Backend `json:"backend"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := server.injector.SetBackend(payload.Backend); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		server.writePenBackendState(writer)
+	default:
+		writer.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (server *Server) writePenBackendState(writer http.ResponseWriter) {
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"active":   server.injector.ActiveBackend(),
+		"backends": server.injector.Backends(),
+	})
+}
+
+func (server *Server) activePenBackend() string {
+	if server.injector == nil {
+		return ""
+	}
+
+	return string(server.injector.ActiveBackend())
 }
 
 func (server *Server) handlePenSocket(writer http.ResponseWriter, request *http.Request) {

@@ -4,6 +4,6 @@ package pen
 
 import "fmt"
 
-func NewInjector() (Injector, error) {
+func NewInjector() (Controller, error) {
 	return nil, fmt.Errorf("synthetic Windows Ink pen injection requires windows/amd64")
 }

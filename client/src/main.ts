@@ -2,7 +2,15 @@ import "./style.css";
 
 import { ScreenPreview } from "./screen";
 import { PenTransport } from "./transport";
-import type { HealthResponse, PenEventMessage, PenEventType, ScreenRect, StagePoint } from "./types";
+import type {
+  HealthResponse,
+  PenBackendInfo,
+  PenBackendState,
+  PenEventMessage,
+  PenEventType,
+  ScreenRect,
+  StagePoint,
+} from "./types";
 
 const stage = getElementById<HTMLDivElement>("stage");
 const overlay = getElementById<HTMLCanvasElement>("overlay");
@@ -10,9 +18,11 @@ const screen = getElementById<HTMLImageElement>("screen");
 const connectionStatus = getElementById<HTMLSpanElement>("connectionStatus");
 const pointerStatus = getElementById<HTMLSpanElement>("pointerStatus");
 const pressureStatus = getElementById<HTMLSpanElement>("pressureStatus");
+const backendSwitchButton = getElementById<HTMLButtonElement>("backendSwitchButton");
 const pressureTestButton = getElementById<HTMLButtonElement>("pressureTestButton");
 
 let activePointerId: number | null = null;
+let backendState: PenBackendState | null = null;
 
 const transport = new PenTransport({
   onStateChange: (state) => {
@@ -35,12 +45,17 @@ transport.connect();
 preview.start();
 resizeOverlay();
 void loadHealth();
+void loadPenBackends();
 
 window.addEventListener("resize", resizeOverlay);
 window.addEventListener("orientationchange", resizeOverlay);
 
 pressureTestButton.addEventListener("click", () => {
   void runPressureTest();
+});
+
+backendSwitchButton.addEventListener("click", () => {
+  void switchPenBackend();
 });
 
 stage.addEventListener("pointerdown", (event) => {
@@ -190,11 +205,89 @@ async function runPressureTest(): Promise<void> {
   }
 }
 
+async function loadPenBackends(): Promise<void> {
+  try {
+    const response = await fetch("/api/pen/backend", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`backend status failed: ${response.status}`);
+    }
+
+    backendState = (await response.json()) as PenBackendState;
+    renderBackendButton();
+  } catch (error) {
+    backendSwitchButton.textContent = "Backend: unavailable";
+    backendSwitchButton.disabled = true;
+    connectionStatus.textContent = error instanceof Error ? error.message : "Backend status failed";
+  }
+}
+
+async function switchPenBackend(): Promise<void> {
+  if (backendState === null) {
+    return;
+  }
+
+  const nextBackend = nextPenBackend(backendState);
+  if (nextBackend === null) {
+    connectionStatus.textContent = "No other pen backend available";
+    return;
+  }
+
+  backendSwitchButton.disabled = true;
+  try {
+    const response = await fetch("/api/pen/backend", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backend: nextBackend.id }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message.trim() || `backend switch failed: ${response.status}`);
+    }
+
+    backendState = (await response.json()) as PenBackendState;
+    connectionStatus.textContent = `Backend switched to ${activeBackendLabel(backendState)}`;
+  } catch (error) {
+    connectionStatus.textContent = error instanceof Error ? error.message : "Backend switch failed";
+  } finally {
+    renderBackendButton();
+  }
+}
+
+function nextPenBackend(state: PenBackendState): PenBackendInfo | null {
+  if (state.backends.length === 0) {
+    return null;
+  }
+
+  const activeIndex = Math.max(
+    0,
+    state.backends.findIndex((backend) => backend.id === state.active),
+  );
+  return state.backends[(activeIndex + 1) % state.backends.length];
+}
+
+function renderBackendButton(): void {
+  if (backendState === null) {
+    backendSwitchButton.textContent = "Backend: unavailable";
+    backendSwitchButton.disabled = true;
+    return;
+  }
+
+  backendSwitchButton.textContent = `Backend: ${activeBackendLabel(backendState)}`;
+  backendSwitchButton.disabled = backendState.backends.length < 2;
+}
+
+function activeBackendLabel(state: PenBackendState): string {
+  const active = state.backends.find((backend) => backend.id === state.active);
+  return active?.label ?? state.active;
+}
+
 async function loadHealth(): Promise<void> {
   try {
     const response = await fetch("/api/health", { cache: "no-store" });
     const health = (await response.json()) as HealthResponse;
-    connectionStatus.textContent = `Pen: ${statusLabel(health.penInjection)} | Screen: ${statusLabel(health.screenCapture)}`;
+    connectionStatus.textContent = `Pen: ${statusLabel(health.penInjection)} | Backend: ${health.activePenBackend || "none"} | Screen: ${statusLabel(health.screenCapture)}`;
   } catch {
     connectionStatus.textContent = "Health check unavailable";
   }
