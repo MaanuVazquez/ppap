@@ -29,9 +29,12 @@ jobs:
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          mkdir dist-wintab
-          cl /nologo /LD /O2 /W4 /DWIN32_LEAN_AND_MEAN /Fewintab-proxy\Wintab32.dll wintab-proxy\wintab_proxy.c /link /DEF:wintab-proxy\wintab_proxy.def
+          if errorlevel 1 exit /b 1
+          if not exist dist-wintab mkdir dist-wintab
+          cl /nologo /LD /O2 /W4 /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS /Fewintab-proxy\Wintab32.dll wintab-proxy\wintab_proxy.c /link /DEF:wintab-proxy\wintab_proxy.def user32.lib
+          if errorlevel 1 exit /b 1
           copy wintab-proxy\Wintab32.dll dist-wintab\Wintab32.dll
+          if errorlevel 1 exit /b 1
           dumpbin /exports dist-wintab\Wintab32.dll
 
       - name: Upload WinTab proxy artifact
